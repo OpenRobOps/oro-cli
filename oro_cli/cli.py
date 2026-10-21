@@ -231,8 +231,8 @@ def list_configs(
 @click.argument("config_id", required=False)
 @click.option("--kind", required=True, help="Configuration kind (see `oro list kinds`).")
 @click.option("--json", "as_json", is_flag=True, help="Dump full objects as JSON.")
-@click.option("--yaml", "as_yaml", is_flag=True, help="Dump full objects as YAML.")
-@click.option("--summary", is_flag=True, help="Show a summary table (default).")
+@click.option("--yaml", "as_yaml", is_flag=True, help="Dump full objects as YAML (default).")
+@click.option("--summary", is_flag=True, help="Show a summary table instead of full objects.")
 @click.option("--all", "include_all", is_flag=True, help="Include normally hidden elements.")
 def get_config(
     config_id: str | None, kind: str, as_json: bool, as_yaml: bool, summary: bool, include_all: bool
@@ -240,17 +240,16 @@ def get_config(
     """List configuration objects of a kind."""
     if as_json + as_yaml + summary > 1:
         raise click.BadParameter("Only one of --json, --yaml and --summary can be specified")
-    full = as_json or as_yaml
     try:
-        items = list_configs(kind, full=full, include_all=include_all, config_id=config_id)
+        items = list_configs(kind, full=not summary, include_all=include_all, config_id=config_id)
     except OroError as e:
         fail(e)
-    if as_json:
-        click.echo(json.dumps(items, indent=2))
-    elif as_yaml:
-        click.echo(yaml.safe_dump_all(items, sort_keys=False), nl=False)
-    else:
+    if summary:
         click.echo(table(items))
+    elif as_json:
+        click.echo(json.dumps(items, indent=2))
+    else:
+        click.echo(yaml.safe_dump_all(items, sort_keys=False), nl=False)
 
 
 @list_cmd.command("kinds")

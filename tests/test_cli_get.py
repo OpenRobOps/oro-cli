@@ -27,20 +27,20 @@ ITEMS = [
 ]
 
 
-def test_get_config_short_strips_scope(ctx, requests_mock):
+def test_get_config_summary_strips_scope(ctx, requests_mock):
     requests_mock.get(
         f"{URL}/configuration/list",
         json={"items": [{"id": "a", "kind": "ActionDefinition", "label": "A", "scope": ""}]},
     )
-    r = run("get", "config", "--kind", "ActionDefinition")
+    r = run("get", "config", "--kind", "ActionDefinition", "--summary")
     assert r.exit_code == 0, r.output
     assert "scope" not in r.output and "ActionDefinition" in r.output
     assert requests_mock.last_request.qs == {"kind": ["actiondefinition"], "format": ["short"]}
 
 
-def test_get_config_yaml_full_strips_metadata_scope(ctx, requests_mock):
+def test_get_config_defaults_to_yaml_full(ctx, requests_mock):
     requests_mock.get(f"{URL}/configuration/list", json={"items": ITEMS})
-    r = run("get", "config", "--kind", "ActionDefinition", "a", "--yaml")
+    r = run("get", "config", "--kind", "ActionDefinition", "a")
     assert r.exit_code == 0, r.output
     assert "scope" not in r.output and "label: A" in r.output
     assert requests_mock.last_request.qs == {
@@ -48,6 +48,7 @@ def test_get_config_yaml_full_strips_metadata_scope(ctx, requests_mock):
         "format": ["full"],
         "id": ["a"],
     }
+    assert run("get", "config", "--kind", "ActionDefinition", "a", "--yaml").output == r.output
 
 
 def test_get_config_json_all(ctx, requests_mock):
