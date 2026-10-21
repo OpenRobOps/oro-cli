@@ -151,7 +151,9 @@ pytest
 ruff check . && ruff format --check .
 ```
 
-Release:
+Release: bump `version` in `pyproject.toml`, commit, then publish a GitHub release with a
+`vX.Y.Z` tag. The `publish` workflow builds the package and uploads it to PyPI through
+trusted publishing (no token needed). To publish by hand instead:
 
 ```bash
 python -m build
