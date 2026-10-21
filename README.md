@@ -6,7 +6,7 @@ instances.
 
 ```bash
 oro use myinstance
-oro apply -f missions/
+oro apply -f config/
 oro get config --kind ActionDefinition
 oro get robots
 ```
