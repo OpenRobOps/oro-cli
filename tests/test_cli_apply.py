@@ -125,3 +125,21 @@ def test_apply_fills_missing_api_version(ctx, requests_mock, tmp_path):
     r = run("apply", "-f", f, "-y")
     assert r.exit_code == 0, r.output
     assert requests_mock.last_request.json()["apiVersion"] == "v0.1"
+
+
+def test_apply_malformed_yaml(ctx, requests_mock, tmp_path):
+    f = tmp_path / "bad.yaml"
+    f.write_text("kind: [\n")
+    r = run("apply", "-f", f, "-y")
+    assert r.exit_code == 1
+    assert f"Cannot parse {f}:" in r.stderr and "Traceback" not in r.output
+
+
+def test_apply_all_warns_on_kind_unknown_to_server(ctx, requests_mock, tmp_path):
+    requests_mock.get(f"{URL}/configuration/kinds", json={"items": ["ActionDefinition"]})
+    requests_mock.get(f"{URL}/configuration/list", json={"items": []})
+    f = tmp_path / "typo.yaml"
+    f.write_text("kind: ActionDefinitoin\nmetadata:\n  id: x\n")
+    r = run("apply", "-f", f, "-y", "--all")
+    assert r.exit_code == 0, r.output
+    assert "warning: skipping ActionDefinitoin/x: kind not available on server" in r.stderr

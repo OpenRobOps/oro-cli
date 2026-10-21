@@ -47,3 +47,14 @@ def test_delete_role_401(ctx, requests_mock):
     requests_mock.post(f"{URL}/configuration/clear", status_code=401, json="User not authorized")
     r = run("delete", "config", "--kind", "ActionDefinition", "wave")
     assert r.exit_code == 1 and "(401)" in r.stderr
+
+
+def test_delete_directory(ctx, requests_mock, tmp_path):
+    requests_mock.post(f"{URL}/configuration/clear", json={"operationStatus": "SUCCESS"})
+    d = tmp_path / "cfgs"
+    d.mkdir()
+    (d / "a.yaml").write_text("kind: ActionDefinition\nmetadata:\n  id: a\n")
+    (d / "b.yaml").write_text("kind: ActionDefinition\nmetadata:\n  id: b\n")
+    r = run("delete", "-f", d)
+    assert r.exit_code == 0, r.output
+    assert requests_mock.call_count == 2

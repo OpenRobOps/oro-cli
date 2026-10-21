@@ -54,3 +54,24 @@ def test_500_text_body(requests_mock):
     requests_mock.get(f"{URL}/robots", status_code=500, text="boom")
     with pytest.raises(OroError, match=r"^\(500\) boom$"):
         Oro(URL, "oro_xxx").http_get("robots")
+
+
+def test_connection_error_is_oro_error(requests_mock):
+    import requests
+
+    requests_mock.get(f"{URL}/robots", exc=requests.ConnectionError("refused"))
+    with pytest.raises(OroError, match=rf"^Cannot reach {URL}/robots: refused$"):
+        Oro(URL, "oro_xxx").http_get("robots")
+
+
+def test_non_json_2xx_is_oro_error(requests_mock):
+    requests_mock.get(f"{URL}/robots", text="<html>meteor</html>")
+    with pytest.raises(OroError, match=r"^Unexpected non-JSON response from .*should end in /api"):
+        Oro(URL, "oro_xxx").http_get("robots")
+
+
+def test_error_body_is_truncated(requests_mock):
+    requests_mock.get(f"{URL}/robots", status_code=404, text="x" * 1000)
+    with pytest.raises(OroError) as e:
+        Oro(URL, "oro_xxx").http_get("robots")
+    assert len(str(e.value)) < 300

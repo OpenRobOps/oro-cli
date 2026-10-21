@@ -310,8 +310,11 @@ def resolve_paths(path: str) -> list[str]:
 
 def load_configs(filename: str) -> list[dict]:
     """Loads config objects from a YAML (multi-document) or JSON file."""
-    with open(filename) as fd:
-        docs = [d for d in yaml.safe_load_all(fd) if d is not None]
+    try:
+        with open(filename) as fd:
+            docs = [d for d in yaml.safe_load_all(fd) if d is not None]
+    except (yaml.YAMLError, UnicodeDecodeError) as e:
+        raise click.ClickException(f"Cannot parse {filename}: {e}") from e
     if len(docs) == 1 and isinstance(docs[0], list):
         docs = docs[0]
     return [d for d in docs if isinstance(d, dict)]
@@ -406,7 +409,9 @@ def apply_config(
             logger.debug("Skipping entry in %s: missing kind or metadata.id", source)
             continue
         if kind not in current:
-            logger.debug("Skipping %s/%s: kind not available", kind, config_id)
+            click.echo(
+                f"warning: skipping {kind}/{config_id}: kind not available on server", err=True
+            )
             continue
         drop_scope(obj, source)
         obj.setdefault("apiVersion", API_VERSION)
@@ -455,10 +460,11 @@ def delete(ctx: click.Context, path: str | None) -> None:
     if not path:
         click.echo(ctx.get_help())
         return
-    for index, obj in enumerate(load_configs(path)):
-        drop_scope(obj, path)
-        _clear(obj, index)
-    click.echo(f"Configuration {path} deleted successfully.")
+    for file in resolve_paths(path):
+        for index, obj in enumerate(load_configs(file)):
+            drop_scope(obj, file)
+            _clear(obj, index)
+        click.echo(f"Configuration {file} deleted successfully.")
 
 
 @delete.command("config")

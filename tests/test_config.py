@@ -128,3 +128,13 @@ def test_resolve_no_current(isolated_config):
     write(isolated_config, {"contexts": SAMPLE["contexts"]})
     with pytest.raises(config.ConfigError, match="^No current context. Run `oro use <name>`.$"):
         config.resolve()
+
+
+def test_save_never_exposes_file_more_than_0600(isolated_config, monkeypatch):
+    old = os.umask(0o000)
+    try:
+        config.save(SAMPLE)
+    finally:
+        os.umask(old)
+    assert stat.S_IMODE(os.stat(isolated_config).st_mode) == 0o600
+    assert [p.name for p in isolated_config.parent.iterdir()] == ["config.yaml"]

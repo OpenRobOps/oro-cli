@@ -20,6 +20,8 @@ import requests
 
 API_KEY_HEADER = "x-auth-api-key"
 AUTH_ERROR_PREFIX = "AUTHENTICATION_ERROR"
+TIMEOUT_SECONDS = 30
+MAX_ERROR_LENGTH = 200
 
 
 class OroError(Exception):
@@ -44,17 +46,29 @@ class Oro:
     ) -> requests.Response:
         url = f"{self.url}/{path.lstrip('/')}"
         self.logger.debug("%s %s params=%s body=%s", method, url, params, data)
-        response = self.session.request(method, url, params=params, json=data)
+        try:
+            response = self.session.request(
+                method, url, params=params, json=data, timeout=TIMEOUT_SECONDS
+            )
+        except requests.RequestException as e:
+            raise OroError(f"Cannot reach {url}: {e}") from e
         self.logger.debug("Response %s: %s", response.status_code, response.text)
-        if 200 <= response.status_code < 300:
-            return response
         try:
             body = response.json()
         except ValueError:
-            body = response.text
+            body = None
+        if 200 <= response.status_code < 300:
+            if body is None:
+                raise OroError(
+                    f"Unexpected non-JSON response from {url}; is the URL correct "
+                    "(it should end in /api)?",
+                    response.status_code,
+                )
+            return response
         message = body.get("error") if isinstance(body, dict) else body
         if not isinstance(message, str):
-            message = response.text
+            message = response.text.strip().splitlines()[0] if response.text.strip() else ""
+        message = message[:MAX_ERROR_LENGTH]
         if response.status_code in (401, 403) and message.startswith(AUTH_ERROR_PREFIX):
             raise OroAuthError(message, response.status_code)
         raise OroError(f"({response.status_code}) {message}", response.status_code)
