@@ -6,4 +6,3 @@ build/
 venv/
 .ruff_cache/
 .pytest_cache/
-.header.txt
