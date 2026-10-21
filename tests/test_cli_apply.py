@@ -115,3 +115,13 @@ def test_apply_directory(ctx, requests_mock, tmp_path):
     r = run("apply", "-f", tmp_path, "-y")
     assert r.exit_code == 0, r.output
     assert len([q for q in requests_mock.request_history if q.method == "POST"]) == 2
+
+
+def test_apply_fills_missing_api_version(ctx, requests_mock, tmp_path):
+    requests_mock.get(f"{URL}/configuration/list", json={"items": []})
+    requests_mock.post(f"{URL}/configuration/apply", json={"operationStatus": "SUCCESS"})
+    f = tmp_path / "noversion.yaml"
+    f.write_text("kind: Test\nmetadata:\n  id: t\n")
+    r = run("apply", "-f", f, "-y")
+    assert r.exit_code == 0, r.output
+    assert requests_mock.last_request.json()["apiVersion"] == "v0.1"

@@ -38,6 +38,7 @@ logger.addHandler(_handler)
 logger.setLevel(logging.ERROR)
 
 ENV_CONTEXT_NAME = "(environment)"
+API_VERSION = "v0.1"  # the only value ORO accepts; filled in when a file omits it
 
 
 def table(rows: list[dict]) -> str:
@@ -409,6 +410,7 @@ def apply_config(
             logger.debug("Skipping %s/%s: kind not available", kind, config_id)
             continue
         drop_scope(obj, source)
+        obj.setdefault("apiVersion", API_VERSION)
         local_ids[kind].add(config_id)
         display_config_diff(current[kind].get(config_id), obj)
         if compare:
