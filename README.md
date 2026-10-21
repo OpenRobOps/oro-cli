@@ -127,9 +127,26 @@ oro --help
 
 ## Development
 
+To try the tool from a checkout without publishing it, install it in editable mode. The
+`oro` command then runs the code in your working tree, so edits take effect immediately:
+
 ```bash
+git clone https://github.com/openrobops/oro-cli.git
+cd oro-cli
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e '.[dev]'
+
+oro --version
+oro context add local --url http://localhost:3000/api --api-key oro_xxx
+oro whoami
+```
+
+Or, without a virtualenv, run it straight from the repo with [uv](https://docs.astral.sh/uv/)
+or [pipx](https://pipx.pypa.io/): `uv run oro --help` or `pipx install -e .`.
+
+Tests and lint:
+
+```bash
 pytest
 ruff check . && ruff format --check .
 ```
