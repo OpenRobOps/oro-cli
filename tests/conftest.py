@@ -21,3 +21,11 @@ def isolated_config(tmp_path, monkeypatch):
     for var in ("ORO_URL", "ORO_API_KEY", "ORO_VERBOSE", "ORO_CONTEXT"):
         monkeypatch.delenv(var, raising=False)
     yield tmp_path / "oro" / "config.yaml"
+
+
+def run(*args, **kwargs):
+    from click.testing import CliRunner
+
+    from oro_cli.cli import cli
+
+    return CliRunner().invoke(cli, [str(a) for a in args], input=kwargs.get("input"))
