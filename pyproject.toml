@@ -36,6 +36,9 @@ packages = ["oro_cli"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Sourced ROS installs register launch_testing pytest plugins via PYTHONPATH; they import
+# packages not present in this venv, so keep them out.
+addopts = "-p no:launch_testing -p no:launch_ros"
 
 [tool.ruff]
 target-version = "py312"
