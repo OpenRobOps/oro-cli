@@ -13,11 +13,14 @@
 #    limitations under the License.
 """ORO command line interface."""
 
+import json
 import logging
 import sys
+from datetime import datetime
 from typing import NoReturn
 
 import click
+import yaml
 from tabulate import tabulate
 
 from oro_cli import __version__, config
@@ -30,6 +33,11 @@ logger.addHandler(_handler)
 logger.setLevel(logging.ERROR)
 
 ENV_CONTEXT_NAME = "(environment)"
+
+
+def table(rows: list[dict]) -> str:
+    # Ids and versions are strings; keep "1.0" and "0123" as typed.
+    return tabulate(rows, headers="keys", disable_numparse=True)
 
 
 def fail(e: Exception) -> NoReturn:
@@ -145,7 +153,7 @@ def context_list() -> None:
         }
         for name, ctx in data["contexts"].items()
     ]
-    click.echo(tabulate(rows, headers="keys"))
+    click.echo(table(rows))
 
 
 @context.command("current")
@@ -176,3 +184,108 @@ def whoami() -> None:
     except OroError as e:
         fail(e)
     click.echo(f"Authenticated as user {response.get('user', 'N/A')}")
+
+
+# --- configuration as code -------------------------------------------------
+
+
+def strip_scope(item: dict) -> dict:
+    """Removes the dummy scope the server stamps on listed items."""
+    item.pop("scope", None)
+    if isinstance(item.get("metadata"), dict):
+        item["metadata"].pop("scope", None)
+    return item
+
+
+def list_kinds() -> list[str]:
+    try:
+        return sorted(get_client().http_get("configuration/kinds").json()["items"])
+    except OroError as e:
+        fail(e)
+
+
+def list_configs(
+    kind: str, *, full: bool, include_all: bool = False, config_id: str | None = None
+) -> list[dict]:
+    params = {"kind": kind, "format": "full" if full else "short"}
+    if include_all:
+        params["all"] = "true"
+    if config_id:
+        params["id"] = config_id
+    try:
+        items = get_client().http_get("configuration/list", params).json()["items"]
+    except OroError as e:
+        if e.status == 401:
+            raise OroError(f"Unauthorized for kind {kind}", 401) from e
+        raise
+    return [strip_scope(i) for i in items]
+
+
+@get.command("config")
+@click.argument("config_id", required=False)
+@click.option("--kind", required=True, help="Configuration kind (see `oro list kinds`).")
+@click.option("--json", "as_json", is_flag=True, help="Dump full objects as JSON.")
+@click.option("--yaml", "as_yaml", is_flag=True, help="Dump full objects as YAML.")
+@click.option("--summary", is_flag=True, help="Show a summary table (default).")
+@click.option("--all", "include_all", is_flag=True, help="Include normally hidden elements.")
+def get_config(
+    config_id: str | None, kind: str, as_json: bool, as_yaml: bool, summary: bool, include_all: bool
+) -> None:
+    """List configuration objects of a kind."""
+    if as_json + as_yaml + summary > 1:
+        raise click.BadParameter("Only one of --json, --yaml and --summary can be specified")
+    full = as_json or as_yaml
+    try:
+        items = list_configs(kind, full=full, include_all=include_all, config_id=config_id)
+    except OroError as e:
+        fail(e)
+    if as_json:
+        click.echo(json.dumps(items, indent=2))
+    elif as_yaml:
+        click.echo(yaml.safe_dump_all(items, sort_keys=False), nl=False)
+    else:
+        click.echo(table(items))
+
+
+@list_cmd.command("kinds")
+def list_kinds_cmd() -> None:
+    """List all configuration kinds."""
+    click.echo(table([{"name": k} for k in list_kinds()]))
+
+
+# --- robots ----------------------------------------------------------------
+
+
+def _robots() -> list[dict]:
+    try:
+        return get_client().http_get("robots").json()
+    except OroError as e:
+        fail(e)
+
+
+def _robot_row(r: dict) -> dict:
+    return {"name": r.get("name", ""), "id": r["id"], "agent version": r.get("agentVersion", "")}
+
+
+@get.command("robots")
+def get_robots() -> None:
+    """List robots."""
+    click.echo(table([_robot_row(r) for r in _robots()]))
+
+
+@describe.command("robots")
+def describe_robots() -> None:
+    """List robots with online state and last seen time."""
+    rows = [
+        {
+            **_robot_row(r),
+            "online": r.get("agentOnline", False),
+            "last seen": (
+                datetime.fromtimestamp(r["updatedTs"] / 1000).isoformat()
+                if r.get("updatedTs")
+                else ""
+            ),
+        }
+        for r in _robots()
+    ]
+    click.echo(table(rows))

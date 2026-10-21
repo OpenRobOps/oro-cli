@@ -29,3 +29,17 @@ def run(*args, **kwargs):
     from oro_cli.cli import cli
 
     return CliRunner().invoke(cli, [str(a) for a in args], input=kwargs.get("input"))
+
+
+@pytest.fixture
+def ctx(isolated_config):
+    from oro_cli import config
+
+    config.save(
+        {
+            "current": "myinstance",
+            "contexts": {
+                "myinstance": {"url": "https://oro.example.com/api", "api_key": "oro_xxx"}
+            },
+        }
+    )
