@@ -13,15 +13,20 @@
 #    limitations under the License.
 """ORO command line interface."""
 
+import difflib
+import glob
 import json
 import logging
+import os
 import sys
+from collections import defaultdict
 from datetime import datetime
 from typing import NoReturn
 
 import click
 import yaml
 from tabulate import tabulate
+from unidiff import PatchSet
 
 from oro_cli import __version__, config
 from oro_cli.client import Oro, OroError
@@ -289,3 +294,135 @@ def describe_robots() -> None:
         for r in _robots()
     ]
     click.echo(table(rows))
+
+
+# --- apply -----------------------------------------------------------------
+
+
+def resolve_paths(path: str) -> list[str]:
+    if os.path.isfile(path):
+        return [path]
+    files = []
+    for pattern in ("**/*.yaml", "**/*.yml", "**/*.json"):
+        files.extend(glob.glob(os.path.join(path, pattern), recursive=True))
+    return sorted(files)
+
+
+def load_configs(filename: str) -> list[dict]:
+    """Loads config objects from a YAML (multi-document) or JSON file."""
+    with open(filename) as fd:
+        docs = [d for d in yaml.safe_load_all(fd) if d is not None]
+    if len(docs) == 1 and isinstance(docs[0], list):
+        docs = docs[0]
+    return [d for d in docs if isinstance(d, dict)]
+
+
+def drop_scope(config_object: dict, source: str) -> None:
+    metadata = config_object.get("metadata") or {}
+    if "scope" in metadata:
+        click.echo(
+            f"warning: ignoring metadata.scope in {config_object.get('kind')}/{metadata.get('id')}"
+            f" ({source}) - not used by ORO",
+            err=True,
+        )
+        del metadata["scope"]
+
+
+def display_config_diff(current: dict | None, new: dict) -> None:
+    click.echo("----------")
+    click.echo(f"Showing diff for {new.get('kind')}: {new.get('metadata', {}).get('id')}")
+    old_lines = yaml.safe_dump(current or {}, sort_keys=True).splitlines(keepends=True)
+    new_lines = yaml.safe_dump(new, sort_keys=True).splitlines(keepends=True)
+    diff_text = "".join(
+        difflib.unified_diff(old_lines, new_lines, fromfile="current.yaml", tofile="new.yaml")
+    )
+    if not diff_text:
+        click.echo("No diffs detected.")
+        return
+    for patched_file in PatchSet(diff_text):
+        for hunk in patched_file:
+            for line in hunk:
+                src = line.source_line_no or ""
+                tgt = line.target_line_no or ""
+                value = line.value.rstrip("\n")
+                if line.is_context:
+                    click.echo(f"{src:>4} {tgt:>4} |   {value}")
+                elif line.is_removed and current:
+                    click.echo(click.style(f"{src:>4}      | - {value}", fg="red"))
+                elif line.is_added:
+                    click.echo(click.style(f"{tgt:>4}      | + {value}", fg="green"))
+
+
+def display_response_messages(response, index: int | None = None) -> None:
+    try:
+        messages = response.json().get("messages") or []
+    except (ValueError, AttributeError):
+        return
+    colors = {"warn": "yellow", "error": "red"}
+    for m in messages:
+        message = m.get("message") if isinstance(m, dict) else m
+        level = (m.get("level") or "").lower() if isinstance(m, dict) else ""
+        if message:
+            prefix = f"[{index}] " if index is not None else ""
+            click.echo(prefix + click.style(message, fg=colors.get(level)))
+
+
+@cli.command("apply")
+@click.option("-f", "path", required=True, type=click.Path(exists=True, resolve_path=True))
+@click.option("-y", "yes", is_flag=True, help="Apply without asking for confirmation.")
+@click.option("--compare", is_flag=True, help="Only show differences, do not apply.")
+@click.option(
+    "--all", "include_all", is_flag=True, help="Also report server configs missing locally."
+)
+@click.option(
+    "--exclude", "exclude_kinds", multiple=True, help="Kind to exclude (with --all). Repeatable."
+)
+def apply_config(
+    path: str, yes: bool, compare: bool, include_all: bool, exclude_kinds: tuple[str, ...]
+) -> None:
+    """Apply configuration from a file or directory, showing a diff first."""
+    if exclude_kinds and not include_all:
+        raise click.UsageError("--exclude requires --all")
+    objects = [(obj, file) for file in resolve_paths(path) for obj in load_configs(file)]
+    if include_all:
+        kinds = [k for k in list_kinds() if k not in exclude_kinds]
+    else:
+        kinds = sorted({o.get("kind") for o, _ in objects if o.get("kind")} - set(exclude_kinds))
+    current: dict[str, dict[str, dict]] = {}
+    for kind in kinds:
+        try:
+            items = list_configs(kind, full=True, include_all=True)
+        except OroError as e:
+            if e.status == 401:
+                click.echo(f"warning: unauthorized for kind {kind}, skipping", err=True)
+                continue
+            fail(e)
+        current[kind] = {i["metadata"]["id"]: i for i in items if i.get("metadata", {}).get("id")}
+    local_ids: dict[str, set[str]] = defaultdict(set)
+    for index, (obj, source) in enumerate(objects):
+        kind = obj.get("kind")
+        config_id = (obj.get("metadata") or {}).get("id")
+        if not kind or not config_id:
+            logger.debug("Skipping entry in %s: missing kind or metadata.id", source)
+            continue
+        if kind not in current:
+            logger.debug("Skipping %s/%s: kind not available", kind, config_id)
+            continue
+        drop_scope(obj, source)
+        local_ids[kind].add(config_id)
+        display_config_diff(current[kind].get(config_id), obj)
+        if compare:
+            click.echo("Comparison finished")
+            continue
+        if not yes and not click.confirm("Do you want to apply this configuration?"):
+            continue
+        try:
+            response = get_client().http_post("configuration/apply", obj)
+        except OroError as e:
+            fail(e)
+        display_response_messages(response, index)
+        click.echo(f"Configuration from {source} for {kind} {config_id} applied successfully.")
+    if include_all:
+        for kind, items in current.items():
+            for missing in sorted(set(items) - local_ids[kind]):
+                click.echo(f"Missing {kind} config: {missing}")

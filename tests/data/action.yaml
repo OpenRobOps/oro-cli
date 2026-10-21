@@ -1,0 +1,8 @@
+kind: ActionDefinition
+apiVersion: v0.1
+metadata:
+  id: wave
+  scope: account
+spec:
+  label: Wave
+  type: PublishToTopic
