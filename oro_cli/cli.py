@@ -427,3 +427,44 @@ def apply_config(
         for kind, items in current.items():
             for missing in sorted(set(items) - local_ids[kind]):
                 click.echo(f"Missing {kind} config: {missing}")
+
+
+# --- delete ----------------------------------------------------------------
+
+
+def _clear(config_object: dict, index: int | None = None) -> None:
+    body = {
+        "kind": config_object.get("kind"),
+        "apiVersion": config_object.get("apiVersion", API_VERSION),
+        "metadata": {"id": (config_object.get("metadata") or {}).get("id")},
+    }
+    try:
+        response = get_client().http_post("configuration/clear", body)
+    except OroError as e:
+        fail(e)
+    display_response_messages(response, index)
+
+
+@cli.group(invoke_without_command=True)
+@click.option("-f", "path", type=click.Path(exists=True, resolve_path=True))
+@click.pass_context
+def delete(ctx: click.Context, path: str | None) -> None:
+    """Delete configuration objects by id or from a file."""
+    if ctx.invoked_subcommand:
+        return
+    if not path:
+        click.echo(ctx.get_help())
+        return
+    for index, obj in enumerate(load_configs(path)):
+        drop_scope(obj, path)
+        _clear(obj, index)
+    click.echo(f"Configuration {path} deleted successfully.")
+
+
+@delete.command("config")
+@click.argument("config_id")
+@click.option("--kind", required=True, help="Configuration kind.")
+def delete_config(config_id: str, kind: str) -> None:
+    """Clear the configuration object with the given kind and id."""
+    _clear({"kind": kind, "metadata": {"id": config_id}})
+    click.echo("OK")
